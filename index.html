@@ -222,10 +222,8 @@
           return;
         }
 
-        // Attempt to copy text + all images together
-        setStatus(`Preparing ${1 + images.length} elements...`);
-
-        // Fetch all images
+        // Fetch all images FIRST before any clipboard operations
+        setStatus(`Fetching ${images.length} image(s)...`);
         const imageBlobs = [];
         for (let i = 0; i < images.length; i++) {
           const src = images[i];
@@ -237,6 +235,9 @@
           imageBlobs.push(blob);
         }
 
+        // Now try to copy - document should still be focused
+        setStatus(`Preparing clipboard data...`);
+
         // Try combined approach: text + images in one clipboard item
         try {
           const textBlob = new Blob([text], { type: "text/plain" });
@@ -244,33 +245,42 @@
             "text/plain": textBlob
           };
           
-          // Add all images
+          // Add all images with proper MIME types
           imageBlobs.forEach((blob, idx) => {
-            clipboardData[blob.type || "image/png"] = blob;
+            const mimeType = blob.type || "image/png";
+            // Use unique keys if multiple images
+            const key = imageBlobs.length > 1 ? `${mimeType}-${idx}` : mimeType;
+            clipboardData[mimeType] = blob;
           });
 
           const item = new ClipboardItem(clipboardData);
           await navigator.clipboard.write([item]);
-          setStatus(`✓ Copied text + ${imageBlobs.length} image(s) together`);
+          setStatus(`✓ Copied text + ${imageBlobs.length} image(s)`);
         } catch (combinedError) {
-          // Fallback: Copy text first, then copy all images as HTML
           console.warn("Combined copy failed, trying HTML fallback:", combinedError);
           
-          // Create HTML with images as data URLs
-          setStatus(`Converting images to HTML format...`);
-          const imagePromises = imageBlobs.map((blob, idx) => {
+          // Fallback: Convert images to data URLs and copy as HTML
+          setStatus(`Converting to HTML format...`);
+          const imagePromises = imageBlobs.map((blob) => {
             return new Promise((resolve) => {
               const reader = new FileReader();
               reader.onload = () => resolve(reader.result);
+              reader.onerror = () => resolve("");
               reader.readAsDataURL(blob);
             });
           });
           
           const dataUrls = await Promise.all(imagePromises);
           
-          let htmlContent = `<div>${text}</div>`;
+          // Create HTML content
+          let htmlContent = text.split('\n').map(line => 
+            line.trim() ? `<p>${line}</p>` : ''
+          ).join('');
+          
           dataUrls.forEach((dataUrl, idx) => {
-            htmlContent += `<img src="${dataUrl}" alt="Image ${idx + 1}">`;
+            if (dataUrl) {
+              htmlContent += `<img src="${dataUrl}" alt="Image ${idx + 1}">`;
+            }
           });
 
           const htmlBlob = new Blob([htmlContent], { type: "text/html" });
@@ -282,7 +292,7 @@
           });
           
           await navigator.clipboard.write([htmlItem]);
-          setStatus(`✓ Copied as HTML with ${imageBlobs.length} embedded image(s)`);
+          setStatus(`✓ Copied as HTML with ${imageBlobs.length} image(s)`);
         }
       } catch (err) {
         console.error(err);
