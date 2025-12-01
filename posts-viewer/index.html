@@ -210,55 +210,83 @@
         navigator.clipboard.write &&
         window.ClipboardItem;
 
-      // If we can't copy images, we’ll only count the text in total
-      const total = 1 + (canWriteImages ? images.length : 0);
-      let step = 0;
-
       try {
-        // 1) Copy text (with fallback)
-        await copyTextToClipboard(text);
-        step++;
-        setStatus(`Copied ${step}/${total} element - text`);
-
-        // If browser can't handle image clipboard, stop here
-        if (!canWriteImages) {
-          if (images.length > 0) {
-            setStatus(
-              `Copied 1/1 element - text (your browser doesn't support programmatic image copy).`
-            );
+        // If no images or clipboard doesn't support images, just copy text
+        if (images.length === 0 || !canWriteImages) {
+          await copyTextToClipboard(text);
+          if (!canWriteImages && images.length > 0) {
+            setStatus(`Copied text only (browser doesn't support image copy)`);
           } else {
-            setStatus(`Copied 1/1 element - text`);
+            setStatus(`Copied text`);
           }
           return;
         }
 
-        // 2) Copy each image (only if supported)
+        // Attempt to copy text + all images together
+        setStatus(`Preparing ${1 + images.length} elements...`);
+
+        // Fetch all images
+        const imageBlobs = [];
         for (let i = 0; i < images.length; i++) {
           const src = images[i];
           if (!src) continue;
-
+          
+          setStatus(`Fetching image ${i + 1}/${images.length}...`);
           const resp = await fetch(src);
           const blob = await resp.blob();
-
-          const item = new ClipboardItem({
-            [blob.type || "image/png"]: blob
-          });
-          await navigator.clipboard.write([item]);
-
-          step++;
-          setStatus(
-            `Copied ${step}/${total} element - image ${i + 1}`
-          );
+          imageBlobs.push(blob);
         }
 
-        if (images.length === 0) {
-          setStatus(`Copied ${total}/${total} element - text`);
-        } else {
-          setStatus(`Done. Copied ${total}/${total} elements.`);
+        // Try combined approach: text + images in one clipboard item
+        try {
+          const textBlob = new Blob([text], { type: "text/plain" });
+          const clipboardData = {
+            "text/plain": textBlob
+          };
+          
+          // Add all images
+          imageBlobs.forEach((blob, idx) => {
+            clipboardData[blob.type || "image/png"] = blob;
+          });
+
+          const item = new ClipboardItem(clipboardData);
+          await navigator.clipboard.write([item]);
+          setStatus(`✓ Copied text + ${imageBlobs.length} image(s) together`);
+        } catch (combinedError) {
+          // Fallback: Copy text first, then copy all images as HTML
+          console.warn("Combined copy failed, trying HTML fallback:", combinedError);
+          
+          // Create HTML with images as data URLs
+          setStatus(`Converting images to HTML format...`);
+          const imagePromises = imageBlobs.map((blob, idx) => {
+            return new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result);
+              reader.readAsDataURL(blob);
+            });
+          });
+          
+          const dataUrls = await Promise.all(imagePromises);
+          
+          let htmlContent = `<div>${text}</div>`;
+          dataUrls.forEach((dataUrl, idx) => {
+            htmlContent += `<img src="${dataUrl}" alt="Image ${idx + 1}">`;
+          });
+
+          const htmlBlob = new Blob([htmlContent], { type: "text/html" });
+          const textBlobFinal = new Blob([text], { type: "text/plain" });
+          
+          const htmlItem = new ClipboardItem({
+            "text/html": htmlBlob,
+            "text/plain": textBlobFinal
+          });
+          
+          await navigator.clipboard.write([htmlItem]);
+          setStatus(`✓ Copied as HTML with ${imageBlobs.length} embedded image(s)`);
         }
       } catch (err) {
         console.error(err);
-        setStatus("Copy failed: " + err.message);
+        setStatus("❌ Copy failed: " + err.message);
       }
     }
 
