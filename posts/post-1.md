@@ -21,5 +21,7 @@ Tips:
 
 #database #db #replication #mysql #devops #ai #mongodb #influxdb #mcp #postgresql #prometheus #sre #cloud #rds #sharding #sqlite
 
-![](/home/pc/Downloads/devops-sre-notes/posts-viewer/posts/post-1.png)
+![](post-1.png)
+
+![](post-1-2.png)
 
